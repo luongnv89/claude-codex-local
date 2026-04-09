@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+STATE_DIR="${CLAUDE_CODEX_LOCAL_STATE_DIR:-$ROOT/.claude-codex-local}"
+MODEL="${CLAUDE_CODEX_LOCAL_MODEL:-$(python3 "$ROOT/poc_bridge.py" recommend | python3 -c 'import json,sys; print(json.load(sys.stdin)["selected_model"])')}"
+python3 "$ROOT/poc_bridge.py" ensure-config codex --model "$MODEL" >/dev/null
+export HOME="$STATE_DIR/home"
+export XDG_CONFIG_HOME="$HOME/.config"
+export XDG_DATA_HOME="$HOME/.local/share"
+printf 'claude-codex-local: runtime=ollama model=%s state=%s\n' "$MODEL" "$STATE_DIR" >&2
+
+if [ "${1:-}" = "exec" ]; then
+  shift
+  exec codex exec --oss --local-provider ollama -m "$MODEL" "$@"
+fi
+
+exec codex --oss --local-provider ollama -m "$MODEL" "$@"

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+python3 "$ROOT/poc_bridge.py" ensure-config claude >/dev/null
+STATE_DIR="${CLAUDE_CODEX_LOCAL_STATE_DIR:-$ROOT/.claude-codex-local}"
+MODEL="${CLAUDE_CODEX_LOCAL_MODEL:-qwen2.5-coder:0.5b}"
+printf 'configured Claude integration in %s using runtime=ollama model=%s\n' "$STATE_DIR" "$MODEL"
+printf 'next step: HOME=%s/home ollama launch claude --model %s\n' "$STATE_DIR" "$MODEL"
