@@ -64,7 +64,7 @@ run_scenario() {
 
   if docker build \
       -f "$dockerfile" \
-      "${extra_build_args[@]}" \
+      ${extra_build_args[@]+"${extra_build_args[@]}"} \
       -t "$image" \
       "$build_context" \
       > /tmp/ccl_e2e_${name}_build.log 2>&1; then
