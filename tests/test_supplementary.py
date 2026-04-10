@@ -266,9 +266,11 @@ class TestHuggingfaceCliDetect:
         monkeypatch.setattr(
             pb,
             "command_version",
-            lambda name, args=None: {"present": True, "version": "0.21.0"}
-            if name == "huggingface-cli"
-            else {"present": False},
+            lambda name, args=None: (
+                {"present": True, "version": "0.21.0"}
+                if name == "huggingface-cli"
+                else {"present": False}
+            ),
         )
         result = pb.huggingface_cli_detect()
         assert result["present"] is True
@@ -369,10 +371,10 @@ class TestDownloadGgufViaHfCli:
         monkeypatch.setattr(
             pb,
             "huggingface_download_gguf",
-            lambda repo, filename=None, local_dir=None: captured.update(
-                {"repo": repo, "filename": filename}
-            )
-            or {"ok": True, "path": "/tmp/model.gguf", "error": None},
+            lambda repo, filename=None, local_dir=None: (
+                captured.update({"repo": repo, "filename": filename})
+                or {"ok": True, "path": "/tmp/model.gguf", "error": None}
+            ),
         )
         wiz._download_gguf_via_hf_cli("org/repo model-Q4_K_M.gguf")
         assert captured["repo"] == "org/repo"
