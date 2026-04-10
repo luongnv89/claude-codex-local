@@ -778,7 +778,7 @@ def _wire_claude(engine: str, tag: str) -> WireResult | None:
         }
         return WireResult(argv=["claude", "--model", tag], env=env, effective_tag=tag)
     if engine == "llamacpp":
-        base_url = "http://localhost:8001"
+        base_url = f"http://localhost:{pb.LLAMACPP_SERVER_PORT}"
         env = {
             "ANTHROPIC_BASE_URL": base_url,
             "ANTHROPIC_API_KEY": "sk-local",  # pragma: allowlist secret
@@ -829,7 +829,7 @@ def _wire_codex(engine: str, tag: str) -> WireResult | None:
         return WireResult(argv=["codex", "-m", tag], env=env, effective_tag=tag)
     if engine == "llamacpp":
         env = {
-            "OPENAI_BASE_URL": "http://localhost:8001/v1",
+            "OPENAI_BASE_URL": f"http://localhost:{pb.LLAMACPP_SERVER_PORT}/v1",
             "OPENAI_API_KEY": "sk-local",  # pragma: allowlist secret
         }
         return WireResult(argv=["codex", "-m", tag], env=env, effective_tag=tag)
