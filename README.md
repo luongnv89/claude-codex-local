@@ -1,33 +1,50 @@
 # claude-codex-local
 
-Local backend bridge for Claude Code and Codex.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![CI](https://github.com/luongnv89/claude-codex-local/actions/workflows/ci.yml/badge.svg)](https://github.com/luongnv89/claude-codex-local/actions/workflows/ci.yml)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
-Core idea:
-- keep the existing Claude Code / Codex harness, including all your real
-  `~/.claude` and `~/.codex` config — skills, statusline, agents, plugins,
-  MCP servers all keep working
-- swap the backend to a best-fit local model/runtime
-- install a short shell alias (`cc` for Claude, `cx` for Codex) so your
-  daily command is one word
+**Local backend bridge for Claude Code and Codex.**
 
-## POC status
+Keep your entire Claude Code / Codex workflow — skills, statusline, agents, MCP servers, all config — and swap the backend to a best-fit local model. One alias (`cc` or `cx`) is all it takes.
 
-This repo now has a real POC for the narrowest sensible path:
+---
 
-- runtimes: **Ollama (primary, via `ollama launch`)** and **LM Studio (MLX, secondary)**
-- harnesses: **Claude Code** and **Codex CLI**
-- model-fit helper: **llmfit**
-- isolation rule: **the wizard never touches `~/.claude` or `~/.codex`**;
-  it installs a helper script under `.claude-codex-local/bin/` and a
-  single fenced alias block in `~/.zshrc` / `~/.bashrc`
+## Why?
+
+Claude Code and Codex are powerful harnesses, but they require a remote API call for every interaction. `claude-codex-local` lets you:
+
+- **Run fully offline** using Ollama, LM Studio, or llama.cpp
+- **Keep every config file** (`~/.claude`, `~/.codex`) untouched
+- **Pick the best local model** for your hardware automatically via `llmfit`
+- **Stay safe** — the wizard never writes outside `.claude-codex-local/`
+
+---
+
+## Features
+
+- **Interactive setup wizard** — discovers your installed harnesses and engines, guides model selection, and wires everything up
+- **Ollama first-class support** — uses `ollama launch` for clean process management
+- **LM Studio / llama.cpp** — records the inline env vars needed to point the harness at your local server
+- **`llmfit` integration** — analyses your hardware and recommends the best model quantization that fits in VRAM/RAM
+- **Idempotent shell aliases** — re-running the wizard replaces the existing alias block in `~/.zshrc` / `~/.bashrc` rather than appending
+- **Personalized guide** — generates `guide.md` with your exact daily-use commands after setup
+- **One-command remote install** — no clone required
+
+---
+
+## Prerequisites
+
+- macOS or Linux with a modern shell (zsh or bash)
+- Python 3.10+
+- At least one **harness**: [Claude Code](https://claude.ai/code) or [Codex CLI](https://github.com/openai/codex)
+- At least one **engine**: [Ollama](https://ollama.com) (recommended), [LM Studio](https://lmstudio.ai), or llama.cpp
+- [`llmfit`](https://github.com/luongnv89/llmfit) on `PATH` (optional but recommended for model selection)
+
+---
 
 ## Quickstart
-
-### Prereqs
-
-At least one harness (Claude Code or Codex), at least one engine (Ollama, LM
-Studio, or llama.cpp), and `llmfit` on `PATH`. The wizard will tell you what's
-missing and how to install it.
 
 ### One-command install (no clone required)
 
@@ -41,12 +58,9 @@ Or with wget:
 bash <(wget -qO- https://raw.githubusercontent.com/luongnv89/claude-codex-local/main/install.sh)
 ```
 
-> Use the `bash <(...)` form, **not** `curl … | bash`. The wizard is
-> interactive and needs a real TTY on stdin — piping steals stdin.
+> **Important:** Use `bash <(...)`, not `curl … | bash`. The wizard is interactive and needs a real TTY on stdin — piping steals stdin.
 
-The installer downloads the repo tarball to `~/.claude-codex-local-src`,
-creates a virtualenv, installs `requirements.txt`, and launches the wizard
-automatically. Override defaults with env vars:
+Override defaults with env vars:
 
 ```bash
 CCL_REF=v0.2.0 \
@@ -54,53 +68,55 @@ CCL_INSTALL_DIR=~/tools/claude-codex-local \
 bash <(curl -sSL https://raw.githubusercontent.com/luongnv89/claude-codex-local/main/install.sh)
 ```
 
-### First run from a clone (alternative)
-
-If you prefer to clone the repo yourself, install the Python dependencies
-once:
+### Install from a clone
 
 ```bash
+git clone https://github.com/luongnv89/claude-codex-local.git
+cd claude-codex-local
+
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-```
+source .venv/bin/activate
+pip install -r requirements.txt
 
-Then run the interactive setup:
-
-```bash
 ./bin/claude-codex-local
 ```
 
-The wizard will:
+### After setup
 
-1. discover what you already have (harnesses, engines, llmfit, free disk)
-2. tell you what's missing and how to install it
-3. ask which harness + engine you want to use
-4. ask which model you want (or help you pick via `llmfit`)
-5. smoke-test the engine with that model
-6. wire up the harness: for Ollama it captures
-   `ollama launch claude|codex --model <tag>`; for LM Studio / llama.cpp
-   it records the inline env needed to point the harness at the local
-   server
-7. write a helper script to `.claude-codex-local/bin/{cc,cx}` and install
-   aliases (`cc` + `claude-local`, or `cx` + `codex-local`) into your
-   shell rc file between fenced markers (idempotent — re-running replaces
-   the block in place)
-8. verify the launch command end-to-end
-9. write a personalized `guide.md` with your exact daily-use command
-   (see [`guide.example.md`](./guide.example.md) for a sanitized example
-   of what that generated output looks like — real values are filled in
-   from your wizard run)
-
-After setup, **reload your shell so the new alias is picked up** —
-run `source ~/.zshrc` (or `source ~/.bashrc`, or just open a new
-terminal). Then run `cc` (or `cx`). That's it.
-
-### Useful flags
+Reload your shell so the alias is picked up:
 
 ```bash
-./bin/claude-codex-local setup --harness claude --engine ollama   # skip the prefs picker
+source ~/.zshrc   # or source ~/.bashrc
+```
+
+Then just run `cc` (Claude) or `cx` (Codex). That's it.
+
+---
+
+## What the wizard does
+
+1. Discovers what you already have (harnesses, engines, `llmfit`, free disk)
+2. Reports what's missing and how to install it
+3. Asks which harness + engine combination you want
+4. Asks which model (or uses `llmfit` to pick automatically)
+5. Smoke-tests the engine with that model
+6. Wires up the harness — captures `ollama launch claude|codex --model <tag>` or records the inline env for LM Studio / llama.cpp
+7. Writes helper scripts to `.claude-codex-local/bin/{cc,cx}` and installs shell aliases
+8. Verifies the full launch pipeline end-to-end
+9. Writes a personalized `guide.md` with your exact commands
+
+See [`guide.example.md`](guide.example.md) for a sanitized example of the generated output.
+
+---
+
+## Usage
+
+### Wizard flags
+
+```bash
+./bin/claude-codex-local setup --harness claude --engine ollama   # skip prefs picker
 ./bin/claude-codex-local setup --non-interactive                  # CI-friendly
-./bin/claude-codex-local setup --resume                           # pick up after a failed step
+./bin/claude-codex-local setup --resume                           # resume after a failed step
 ./bin/claude-codex-local find-model                               # standalone llmfit recommendation
 ```
 
@@ -108,32 +124,72 @@ terminal). Then run `cc` (or `cx`). That's it.
 
 ```bash
 ./bin/poc-machine-profile   # dump the full machine profile as JSON
-./bin/poc-doctor            # print the wizard state + recommendation
+./bin/poc-doctor            # print wizard state + recommendation
 ./bin/poc-recommend         # llmfit-only model recommendation
 ```
 
-## Repo-local state
+---
 
-Everything local to the bridge is written under:
+## Project structure
 
-```text
+```
+.
+├── bin/                        # Entry-point scripts
+│   ├── claude-codex-local      # Main wizard entrypoint
+│   ├── poc-doctor              # Diagnostic: wizard state
+│   ├── poc-machine-profile     # Diagnostic: hardware profile
+│   └── poc-recommend           # Diagnostic: model recommendation
+├── scripts/
+│   └── e2e_smoke.sh            # End-to-end smoke test
+├── docs/
+│   ├── poc-wizard.md           # 8-step wizard architecture
+│   ├── poc-architecture.md     # System design overview
+│   ├── poc-bootstrap.md        # Bootstrap / install flow
+│   └── poc-proof.md            # Design rationale
+├── tests/                      # pytest test suite
+├── wizard.py                   # Interactive setup wizard (core logic)
+├── poc_bridge.py               # Backend bridge / harness wiring
+├── install.sh                  # One-command remote installer
+├── pyproject.toml              # Project metadata and tool config
+└── .claude-codex-local/        # Runtime state dir (gitignored)
+```
+
+---
+
+## Local state
+
+Everything written by the bridge goes under:
+
+```
 .claude-codex-local/
 ```
 
-You can override that with `CLAUDE_CODEX_LOCAL_STATE_DIR`.
+Override with the `CLAUDE_CODEX_LOCAL_STATE_DIR` environment variable.
 
-## Included docs
+---
 
-- `idea.md`
-- `validate.md`
-- `prd.md`
-- `tasks.md`
-- `docs/poc-wizard.md` — **current** 8-step wizard architecture
-- `docs/poc-bootstrap.md`
-- `docs/poc-architecture.md`
-- `docs/poc-proof.md`
+## Tech stack
 
-## Positioning
+| Layer | Tool |
+|---|---|
+| Language | Python 3.10+ |
+| UI / prompts | [questionary](https://github.com/tmbo/questionary), [rich](https://github.com/Textualize/rich) |
+| Linting | [ruff](https://github.com/astral-sh/ruff) |
+| Type checking | [mypy](https://mypy-lang.org) |
+| Testing | [pytest](https://pytest.org) + pytest-cov |
+| Security | [bandit](https://github.com/PyCQA/bandit), [detect-secrets](https://github.com/Yelp/detect-secrets) |
+| Pre-commit | [pre-commit](https://pre-commit.com) |
 
-This is **not** an offline replacement for Claude Code or Codex.
-It is a local backend bridge that preserves the existing workflow while making local model usage practical.
+---
+
+## Contributing
+
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR.
+
+For security issues, see [SECURITY.md](SECURITY.md).
+
+---
+
+## License
+
+[MIT](LICENSE) — © 2024 Luong NGUYEN
