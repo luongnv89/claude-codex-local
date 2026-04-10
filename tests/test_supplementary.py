@@ -271,22 +271,14 @@ class TestSmokeTestCodex:
 class TestHuggingfaceCliDetect:
     def test_present(self, isolated_state, monkeypatch):
         pb, _, _ = isolated_state
-        monkeypatch.setattr(
-            pb,
-            "command_version",
-            lambda name, args=None: (
-                {"present": True, "version": "0.21.0"}
-                if name == "huggingface-cli"
-                else {"present": False}
-            ),
-        )
+        monkeypatch.setattr(pb.shutil, "which", lambda name: "/usr/local/bin/huggingface-cli")
         result = pb.huggingface_cli_detect()
         assert result["present"] is True
-        assert "0.21.0" in result["version"]
+        assert result["version"] == ""
 
     def test_missing(self, isolated_state, monkeypatch):
         pb, _, _ = isolated_state
-        monkeypatch.setattr(pb, "command_version", lambda *a, **kw: {"present": False})
+        monkeypatch.setattr(pb.shutil, "which", lambda name: None)
         result = pb.huggingface_cli_detect()
         assert result["present"] is False
 

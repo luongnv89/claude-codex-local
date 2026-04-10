@@ -772,7 +772,9 @@ def disk_usage_for(path: Path) -> dict[str, Any]:
 
 def huggingface_cli_detect() -> dict[str, Any]:
     """Detect huggingface-cli (from huggingface_hub[cli] package) on PATH."""
-    return command_version("huggingface-cli")
+    if shutil.which("huggingface-cli"):
+        return {"present": True, "version": ""}
+    return {"present": False, "version": ""}
 
 
 def huggingface_download_gguf(

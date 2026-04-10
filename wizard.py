@@ -904,6 +904,19 @@ def step_2_5_smoke_test(state: WizardState, non_interactive: bool = False) -> bo
             pb.lms_start_server()
         pb.lms_load_model(tag)
         result = pb.smoke_test_lmstudio_model(tag)
+    elif engine == "llamacpp":
+        # llama.cpp server must be started manually by the user with the GGUF model loaded.
+        llamacpp_status = pb.llamacpp_info()
+        if not llamacpp_status.get("server_running"):
+            model_path = state.profile.get("llamacpp_model_path", "<path/to/model.gguf>")
+            warn(
+                f"llama.cpp server is not running on port {llamacpp_status['server_port']}. "
+                f"Start it with: llama-server --port {llamacpp_status['server_port']} "
+                f"--model {model_path}"
+            )
+            result = {"ok": False, "error": "llama.cpp server not running"}
+        else:
+            result = pb.smoke_test_llamacpp_model(tag)
     else:
         warn(f"Smoke test for engine '{engine}' not implemented — skipping.")
         result = {"ok": True, "response": "(skipped)"}
@@ -1002,7 +1015,7 @@ def _wire_claude(engine: str, tag: str) -> WireResult | None:
         }
         return WireResult(argv=["claude", "--model", tag], env=env, effective_tag=tag)
     if engine == "llamacpp":
-        base_url = "http://localhost:8001"
+        base_url = f"http://localhost:{pb.LLAMACPP_SERVER_PORT}"
         env = {
             "ANTHROPIC_BASE_URL": base_url,
             "ANTHROPIC_API_KEY": "sk-local",  # pragma: allowlist secret
@@ -1053,7 +1066,7 @@ def _wire_codex(engine: str, tag: str) -> WireResult | None:
         return WireResult(argv=["codex", "-m", tag], env=env, effective_tag=tag)
     if engine == "llamacpp":
         env = {
-            "OPENAI_BASE_URL": "http://localhost:8001/v1",
+            "OPENAI_BASE_URL": f"http://localhost:{pb.LLAMACPP_SERVER_PORT}/v1",
             "OPENAI_API_KEY": "sk-local",  # pragma: allowlist secret
         }
         return WireResult(argv=["codex", "-m", tag], env=env, effective_tag=tag)
