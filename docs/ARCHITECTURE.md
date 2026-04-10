@@ -40,7 +40,7 @@ This document describes the system design of `claude-codex-local`.
 
 ### 2. Interactive setup wizard (`wizard.py`)
 
-An 8-step wizard that runs once (or with `--resume` after a failure):
+A 9-step wizard that runs once (or with `--resume` after a failure):
 
 | Step | Action |
 |------|--------|
@@ -50,8 +50,9 @@ An 8-step wizard that runs once (or with `--resume` after a failure):
 | 4 | Ask which model (or auto-pick via `llmfit`) |
 | 5 | Smoke-test the engine with the chosen model |
 | 6 | Wire up the harness |
-| 7 | Install shell aliases (`cc` / `cx`) |
+| 7 | Install helper script + shell aliases (`cc` / `cx`) |
 | 8 | End-to-end verification |
+| 9 | Generate personalized `guide.md` |
 
 State is persisted to `.claude-codex-local/wizard-state.json` so a failed run can be resumed without starting over.
 

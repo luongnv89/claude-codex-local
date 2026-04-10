@@ -17,9 +17,7 @@ cd claude-codex-local
 
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"            # editable install with dev extras
-# OR:
-pip install -r requirements.txt -r requirements-dev.txt
+pip install -r requirements-dev.txt
 
 pre-commit install                 # set up git hooks
 ```
