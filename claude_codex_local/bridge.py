@@ -17,6 +17,7 @@ ORIG_HOME = Path(os.environ.get("HOME", str(Path.home())))
 STATE_DIR = Path(os.environ.get("CLAUDE_CODEX_LOCAL_STATE_DIR", ORIG_HOME / ".claude-codex-local"))
 
 LMS_SERVER_PORT = int(os.environ.get("LMS_SERVER_PORT", "1234"))
+LLAMACPP_SERVER_PORT = int(os.environ.get("LLAMACPP_SERVER_PORT", "8001"))
 
 # Mapping from HuggingFace model name patterns → Ollama registry tags.
 # Ordered from newest/best to older fallbacks; first match wins.
@@ -199,10 +200,52 @@ class LMStudioAdapter:
         return {"provider": "lmstudio", "extra_flags": []}
 
 
+@dataclass
+class LlamaCppAdapter:
+    """RuntimeAdapter implementation for llama.cpp (llama-server)."""
+
+    name: str = "llamacpp"
+
+    def detect(self) -> dict[str, Any]:
+        return llamacpp_detect()
+
+    def healthcheck(self) -> dict[str, Any]:
+        info = llamacpp_info()
+        if not info.get("present"):
+            return {"ok": False, "detail": "llama-server binary not found in PATH"}
+        if not info.get("server_running"):
+            return {
+                "ok": False,
+                "detail": f"llama.cpp server not running on port {info['server_port']}. "
+                f"Run: llama-server --port {info['server_port']} --model <path/to/model.gguf>",
+            }
+        return {
+            "ok": True,
+            "detail": f"server up on port {info['server_port']}",
+        }
+
+    def list_models(self) -> list[dict[str, Any]]:
+        # llama.cpp loads one model at server start; users manage GGUF files manually.
+        info = llamacpp_info()
+        if not info.get("server_running"):
+            return []
+        model = info.get("model")
+        if model:
+            return [{"name": model, "format": "gguf", "local": True}]
+        return []
+
+    def run_test(self, model: str) -> dict[str, Any]:
+        return smoke_test_llamacpp_model(model)
+
+    def recommend_params(self, mode: str) -> dict[str, Any]:
+        return {"provider": "llamacpp", "extra_flags": []}
+
+
 # Registry of adapters in preference order (LM Studio MLX first on Apple Silicon).
-ALL_ADAPTERS: list[OllamaAdapter | LMStudioAdapter] = [
+ALL_ADAPTERS: list[OllamaAdapter | LMStudioAdapter | LlamaCppAdapter] = [
     LMStudioAdapter(),
     OllamaAdapter(),
+    LlamaCppAdapter(),
 ]
 
 
@@ -734,6 +777,75 @@ def llamacpp_detect() -> dict[str, Any]:
         if info.get("present"):
             return {"present": True, "binary": candidate, "version": info.get("version", "")}
     return {"present": False, "version": ""}
+
+
+def llamacpp_info() -> dict[str, Any]:
+    """
+    Probe llama.cpp: binary presence and server health via HTTP.
+
+    Returns:
+        present:        bool — llama-server binary found on PATH
+        binary:         str  — binary name used (e.g. "llama-server")
+        server_running: bool — server is responding on LLAMACPP_SERVER_PORT
+        server_port:    int
+        model:          str | None — model reported by /v1/models endpoint (if running)
+    """
+    import urllib.error
+    import urllib.request
+
+    detect = llamacpp_detect()
+    base: dict[str, Any] = {
+        "present": detect.get("present", False),
+        "binary": detect.get("binary", ""),
+        "server_running": False,
+        "server_port": LLAMACPP_SERVER_PORT,
+        "model": None,
+    }
+    if not base["present"]:
+        return base
+
+    # Probe /v1/models — llama-server exposes this endpoint when running.
+    url = f"http://localhost:{LLAMACPP_SERVER_PORT}/v1/models"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            body = json.loads(resp.read())
+            models = body.get("data", [])
+            base["server_running"] = True
+            base["model"] = models[0]["id"] if models else None
+    except (urllib.error.URLError, OSError):
+        pass
+    except Exception:
+        pass
+    return base
+
+
+def smoke_test_llamacpp_model(model: str) -> dict[str, Any]:
+    """
+    Smoke-test a model loaded in the llama.cpp server via its OpenAI-compatible API.
+    Requires the server to be running with the model loaded.
+    """
+    import urllib.error
+    import urllib.request
+
+    url = f"http://localhost:{LLAMACPP_SERVER_PORT}/v1/chat/completions"
+    payload = json.dumps(
+        {
+            "model": model,
+            "messages": [{"role": "user", "content": "Reply with exactly READY"}],
+            "max_tokens": 16,
+            "temperature": 0,
+        }
+    ).encode()
+    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            body = json.loads(resp.read())
+            text = body["choices"][0]["message"]["content"].strip()
+            return {"ok": "READY" in text.upper(), "response": text}
+    except urllib.error.URLError as exc:
+        return {"ok": False, "error": str(exc)}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 def machine_profile() -> dict[str, Any]:

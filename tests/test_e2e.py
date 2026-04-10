@@ -154,7 +154,7 @@ class TestPocBridgeCli:
         assert any("Missing tool: ollama" in i for i in data["issues"])
         assert any("No suitable local coding model" in i for i in data["issues"])
 
-    def test_adapters_subcommand_lists_both(self, isolated_state, monkeypatch, capsys):
+    def test_adapters_subcommand_lists_all(self, isolated_state, monkeypatch, capsys):
         pb, _, _ = isolated_state
         # Keep healthchecks cheap and deterministic.
         monkeypatch.setattr(
@@ -166,11 +166,22 @@ class TestPocBridgeCli:
             "lms_info",
             lambda: {"present": True, "server_running": True, "server_port": 1234, "models": []},
         )
+        monkeypatch.setattr(
+            pb,
+            "llamacpp_info",
+            lambda: {
+                "present": True,
+                "binary": "llama-server",
+                "server_running": False,
+                "server_port": 8001,
+                "model": None,
+            },
+        )
         monkeypatch.setattr(sys, "argv", ["poc_bridge", "adapters"])
         pb.main()
         data = json.loads(capsys.readouterr().out)
         names = {a["name"] for a in data["adapters"]}
-        assert names == {"ollama", "lmstudio"}
+        assert names == {"ollama", "lmstudio", "llamacpp"}
 
 
 # ---------------------------------------------------------------------------

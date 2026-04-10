@@ -668,6 +668,18 @@ def step_2_5_smoke_test(state: WizardState, non_interactive: bool = False) -> bo
             pb.lms_start_server()
         pb.lms_load_model(tag)
         result = pb.smoke_test_lmstudio_model(tag)
+    elif engine == "llamacpp":
+        # llama.cpp server must be started manually by the user with the GGUF model loaded.
+        llamacpp_status = pb.llamacpp_info()
+        if not llamacpp_status.get("server_running"):
+            warn(
+                f"llama.cpp server is not running on port {llamacpp_status['server_port']}. "
+                f"Start it with: llama-server --port {llamacpp_status['server_port']} "
+                f"--model <path/to/model.gguf>"
+            )
+            result = {"ok": False, "error": "llama.cpp server not running"}
+        else:
+            result = pb.smoke_test_llamacpp_model(tag)
     else:
         warn(f"Smoke test for engine '{engine}' not implemented — skipping.")
         result = {"ok": True, "response": "(skipped)"}
