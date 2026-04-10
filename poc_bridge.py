@@ -660,6 +660,61 @@ def llmfit_system() -> dict[str, Any] | None:
         return None
 
 
+def llmfit_info(model_name: str) -> dict[str, Any] | None:
+    """
+    Look up a single model via `llmfit info <name> --json`.
+
+    Returns the first matching model dict (with fields like `total_memory_gb`,
+    `params_b`, `best_quant`) or None if llmfit is missing, the lookup fails,
+    or the query is ambiguous.
+    """
+    if not command_version("llmfit").get("present"):
+        return None
+    try:
+        cp = run(["llmfit", "info", model_name, "--json"])
+    except Exception:
+        return None
+    try:
+        data = json.loads(cp.stdout)
+    except Exception:
+        return None
+    models = data.get("models") or []
+    if len(models) != 1:
+        return None  # ambiguous or no match
+    return models[0]
+
+
+def llmfit_estimate_size_bytes(candidate_or_name: dict[str, Any] | str) -> int | None:
+    """
+    Best-effort disk-size estimate for an llmfit candidate or a free-form model
+    name. Prefers `total_memory_gb` from the candidate dict; falls back to
+    `llmfit info` when only a name is given; falls back to a
+    params_b × quant-bits calculation if `total_memory_gb` is missing.
+    """
+    if isinstance(candidate_or_name, str):
+        candidate = llmfit_info(candidate_or_name)
+        if candidate is None:
+            return None
+    else:
+        candidate = candidate_or_name
+
+    gb = candidate.get("total_memory_gb") or candidate.get("memory_required_gb")
+    if not gb:
+        params_b = candidate.get("params_b")
+        quant = (candidate.get("best_quant") or "").lower()
+        bits_per_param = {
+            "mlx-4bit": 4, "q4_k_m": 4, "q4_0": 4, "q4_1": 4,
+            "mlx-5bit": 5, "q5_k_m": 5, "q5_0": 5,
+            "mlx-6bit": 6, "q6_k": 6,
+            "mlx-8bit": 8, "q8_0": 8,
+        }.get(quant)
+        if params_b and bits_per_param:
+            gb = params_b * bits_per_param / 8.0
+    if not gb:
+        return None
+    return int(gb * (1024 ** 3))
+
+
 def llmfit_coding_candidates() -> list[dict[str, Any]]:
     """
     Run `llmfit fit --json`, filter to Coding category, and return a deduplicated

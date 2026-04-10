@@ -61,6 +61,7 @@ class WizardState:
     model_name: str = ""                # raw user input or find-model selection
     model_source: str = ""              # "direct" | "find-model"
     engine_model_tag: str = ""          # engine-specific tag (e.g. qwen3-coder:30b)
+    model_candidate: dict[str, Any] = field(default_factory=dict)  # llmfit candidate metadata when available
     # launch command the wizard wired up
     launch_command: list[str] = field(default_factory=list)
     # smoke test + verify outputs
@@ -370,6 +371,7 @@ def step_2_4_pick_model(state: WizardState, non_interactive: bool = False) -> bo
         state.model_name = candidate["display"]
         state.engine_model_tag = candidate["tag"]
         state.model_source = "find-model"
+        state.model_candidate = candidate.get("candidate") or {}
         ok(f"Non-interactive pick: [bold]{state.engine_model_tag}[/bold]")
     else:
         while True:
@@ -400,6 +402,7 @@ def step_2_4_pick_model(state: WizardState, non_interactive: bool = False) -> bo
                 state.model_name = picked["display"]
                 state.engine_model_tag = picked["tag"]
                 state.model_source = "find-model"
+                state.model_candidate = picked.get("candidate") or {}
 
             if _handle_model_presence(state):
                 break
@@ -564,10 +567,22 @@ def _model_already_installed(engine: str, tag: str, profile: dict[str, Any]) -> 
 
 
 def _estimate_model_size(state: WizardState) -> int | None:
-    """Return a best-effort byte estimate for the chosen model, or None."""
-    # llmfit sometimes exposes size in the candidate metadata via `size_gb`.
-    # Fall back to None when unknown — we'll warn but not block.
-    return None  # TODO: wire llmfit size if available
+    """
+    Best-effort byte estimate for the chosen model, via llmfit.
+
+    Order of preference:
+      1. Already-captured llmfit candidate (find-model path)
+      2. `llmfit info <model_name>` lookup (direct-input path)
+    Returns None when llmfit is unavailable or the lookup is ambiguous.
+    """
+    if state.model_candidate:
+        size = pb.llmfit_estimate_size_bytes(state.model_candidate)
+        if size:
+            return size
+    # Direct input or candidate was missing size fields — try a fresh lookup.
+    if state.model_name:
+        return pb.llmfit_estimate_size_bytes(state.model_name)
+    return None
 
 
 def _download_model(state: WizardState) -> bool:
