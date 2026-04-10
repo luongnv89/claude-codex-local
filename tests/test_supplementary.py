@@ -185,8 +185,16 @@ class TestFindModelStandalone:
             pb,
             "machine_profile",
             lambda: {
-                "presence": {"llmfit": False, "engines": []},
+                "presence": {"llmfit": False, "engines": ["ollama"]},
             },
+        )
+        # Make llmfit appear absent so _ensure_llmfit triggers the prompt.
+        monkeypatch.setattr(pb, "command_version", lambda cmd, **kw: {"present": False})
+        # User declines install offer → should still return 1.
+        import questionary as _q
+
+        monkeypatch.setattr(
+            _q, "confirm", lambda *a, **kw: type("Q", (), {"ask": lambda self: False})()
         )
         assert wiz.run_find_model_standalone() == 1
 
@@ -344,7 +352,12 @@ class TestDownloadGgufViaHfCli:
     def test_warns_and_fails_when_cli_missing(self, isolated_state, monkeypatch):
         pb, wiz, _ = isolated_state
         monkeypatch.setattr(pb, "huggingface_cli_detect", lambda: {"present": False})
-        # _show_install_hint just prints, no need to stub it
+        # User declines install offer → should still return {"ok": False}.
+        import questionary as _q
+
+        monkeypatch.setattr(
+            _q, "confirm", lambda *a, **kw: type("Q", (), {"ask": lambda self: False})()
+        )
         result = wiz._download_gguf_via_hf_cli("org/repo")
         assert result["ok"] is False
 

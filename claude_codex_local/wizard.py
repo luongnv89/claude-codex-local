@@ -292,9 +292,144 @@ def _show_install_hint(key: str) -> None:
     console.print(f"    [cyan]{hint['cmd']}[/cyan]")
 
 
+_LLMFIT_INSTALL_SCRIPT = """\
+REPO='AlexsJones/llmfit'
+BINARY='llmfit'
+OS=$(uname -s)
+ARCH=$(uname -m)
+case "$OS" in
+  Linux) OS='unknown-linux-musl' ;;
+  Darwin) OS='apple-darwin' ;;
+  *) echo "Unsupported OS: $OS" >&2; exit 1 ;;
+esac
+case "$ARCH" in
+  x86_64|amd64) ARCH='x86_64' ;;
+  aarch64|arm64) ARCH='aarch64' ;;
+  *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;;
+esac
+PLATFORM="${ARCH}-${OS}"
+TAG=$(curl -fsSI "https://github.com/${REPO}/releases/latest" | grep -i '^location:' | head -1 | sed 's|.*/tag/||' | tr -d '\\r\\n')
+ASSET="${BINARY}-${TAG}-${PLATFORM}.tar.gz"
+URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET}"
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
+curl -fsSL "$URL" -o "$TMPDIR/$ASSET"
+if curl -fsSL --max-time 10 "${URL}.sha256" -o "$TMPDIR/${ASSET}.sha256"; then
+  (cd "$TMPDIR" && sha256sum -c "${ASSET}.sha256")
+fi
+tar -xzf "$TMPDIR/$ASSET" -C "$TMPDIR"
+install -d "$HOME/.local/bin"
+install -m 0755 "$TMPDIR/$BINARY" "$HOME/.local/bin/$BINARY"
+export PATH="$HOME/.local/bin:$PATH"
+llmfit --version
+"""
+
+
+def _ensure_tool(key: str) -> bool:
+    """
+    Offer to install a tool by key (matching INSTALL_HINTS).
+    For tools with a runnable install command (ollama, llamacpp, claude, codex,
+    huggingface-cli) the command is executed directly.
+    For tools requiring manual steps (lmstudio) the hint is shown and the user
+    is asked to confirm when done, then the profile is re-probed.
+    Returns True when the tool is detected as present after the attempt.
+    """
+    detect_cmd = {
+        "claude": "claude",
+        "codex": "codex",
+        "ollama": "ollama",
+        "lmstudio": "lms",
+        "llamacpp": "llama-cli",
+    }.get(key, key)
+
+    if pb.command_version(detect_cmd).get("present"):
+        return True
+
+    _show_install_hint(key)
+
+    # lmstudio requires a manual GUI download — can't script it.
+    if key == "lmstudio":
+        proceed = questionary.confirm(
+            "Install LM Studio manually (see link above), then confirm when ready to re-probe?",
+            default=True,
+        ).ask()
+        if not proceed:
+            return False
+        return pb.command_version(detect_cmd).get("present", False)
+
+    # All other tools have a runnable one-liner.
+    hint = INSTALL_HINTS.get(key, {})
+    cmd_str = hint.get("cmd", "")
+    install = questionary.confirm(
+        f"Run install command now?  [{cmd_str}]",
+        default=True,
+    ).ask()
+    if not install:
+        return False
+
+    try:
+        subprocess.run(["bash", "-c", cmd_str], check=True)
+    except subprocess.CalledProcessError as exc:
+        fail(f"Install failed: {exc}")
+        return False
+
+    if not pb.command_version(detect_cmd).get("present"):
+        warn(
+            f"{key} still not found after install. "
+            "You may need to open a new terminal or add its bin directory to PATH."
+        )
+        return False
+
+    ok(f"{key} installed successfully.")
+    return True
+
+
+def _ensure_llmfit() -> bool:
+    """
+    Check if llmfit is present. If not, offer to install it via the official
+    bootstrap script. Returns True if llmfit is available after the check/install.
+    """
+    if pb.command_version("llmfit").get("present"):
+        return True
+
+    warn("llmfit is not installed.")
+    _show_install_hint("llmfit")
+    install = questionary.confirm(
+        "Install llmfit now via the official bootstrap script?",
+        default=True,
+    ).ask()
+    if not install:
+        return False
+
+    try:
+        subprocess.run(["bash", "-c", _LLMFIT_INSTALL_SCRIPT], check=True)
+    except subprocess.CalledProcessError as exc:
+        fail(f"llmfit install failed: {exc}")
+        return False
+
+    # Add ~/.local/bin to PATH for this process so the re-check finds it.
+    local_bin = str(Path.home() / ".local" / "bin")
+    if local_bin not in os.environ.get("PATH", ""):
+        os.environ["PATH"] = local_bin + os.pathsep + os.environ.get("PATH", "")
+
+    if not pb.command_version("llmfit").get("present"):
+        warn(
+            "llmfit still not found after install. "
+            "Ensure ~/.local/bin is on your PATH, then re-run the wizard with --resume."
+        )
+        return False
+
+    ok("llmfit installed successfully.")
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Step 2.3 — Pick preferences
 # ---------------------------------------------------------------------------
+
+
+_ALL_HARNESSES = ["claude", "codex"]
+_ALL_ENGINES = ["ollama", "lmstudio", "llamacpp"]
 
 
 def step_2_3_pick_preferences(state: WizardState, non_interactive: bool = False) -> bool:
@@ -304,44 +439,82 @@ def step_2_3_pick_preferences(state: WizardState, non_interactive: bool = False)
     engines = presence["engines"]
 
     # Harness pick
-    if len(harnesses) == 1:
-        state.primary_harness = harnesses[0]
-        ok(f"Only one harness available: [bold]{state.primary_harness}[/bold]")
-    elif non_interactive:
+    if non_interactive:
+        if not harnesses:
+            fail("No harness installed. Cannot continue in non-interactive mode.")
+            return False
         state.primary_harness = harnesses[0]
         state.secondary_harnesses = harnesses[1:]
         ok(f"Non-interactive: picking [bold]{state.primary_harness}[/bold] as primary harness")
     else:
-        choice = questionary.select(
-            "Which harness do you want as primary?",
-            choices=harnesses,
-        ).ask()
-        if choice is None:
-            return False
-        state.primary_harness = choice
-        state.secondary_harnesses = [h for h in harnesses if h != choice]
+        # Show all known harnesses; mark uninstalled ones.
+        harness_choices = [
+            questionary.Choice(
+                h if h in harnesses else f"{h}  [not installed]",
+                value=h,
+            )
+            for h in _ALL_HARNESSES
+        ]
+        while True:
+            choice = questionary.select(
+                "Which harness do you want as primary?",
+                choices=harness_choices,
+                default=harnesses[0] if harnesses else _ALL_HARNESSES[0],
+            ).ask()
+            if choice is None:
+                return False
+            if choice not in harnesses:
+                if not _ensure_tool(choice):
+                    warn(
+                        f"{choice} is still not available. Please pick another or install it first."
+                    )
+                    continue
+                # Refresh presence after install.
+                state.profile = pb.machine_profile()
+                harnesses = state.profile["presence"]["harnesses"]
+            state.primary_harness = choice
+            state.secondary_harnesses = [h for h in harnesses if h != choice]
+            break
 
     # Engine pick
-    if len(engines) == 1:
-        state.primary_engine = engines[0]
-        ok(f"Only one engine available: [bold]{state.primary_engine}[/bold]")
-    elif non_interactive:
-        # Prefer lmstudio on Apple Silicon, else ollama, else whatever's first.
+    if non_interactive:
+        if not engines:
+            fail("No engine installed. Cannot continue in non-interactive mode.")
+            return False
         default_engine = _default_engine(engines, state.profile)
         state.primary_engine = default_engine
         state.secondary_engines = [e for e in engines if e != default_engine]
         ok(f"Non-interactive: picking [bold]{state.primary_engine}[/bold] as primary engine")
     else:
-        default_engine = _default_engine(engines, state.profile)
-        choice = questionary.select(
-            "Which engine do you want as primary?",
-            choices=engines,
-            default=default_engine,
-        ).ask()
-        if choice is None:
-            return False
-        state.primary_engine = choice
-        state.secondary_engines = [e for e in engines if e != choice]
+        # Show all known engines; mark uninstalled ones.
+        engine_choices = [
+            questionary.Choice(
+                e if e in engines else f"{e}  [not installed]",
+                value=e,
+            )
+            for e in _ALL_ENGINES
+        ]
+        default_engine = _default_engine(engines, state.profile) if engines else _ALL_ENGINES[0]
+        while True:
+            choice = questionary.select(
+                "Which engine do you want as primary?",
+                choices=engine_choices,
+                default=default_engine,
+            ).ask()
+            if choice is None:
+                return False
+            if choice not in engines:
+                if not _ensure_tool(choice):
+                    warn(
+                        f"{choice} is still not available. Please pick another or install it first."
+                    )
+                    continue
+                # Refresh presence after install.
+                state.profile = pb.machine_profile()
+                engines = state.profile["presence"]["engines"]
+            state.primary_engine = choice
+            state.secondary_engines = [e for e in engines if e != choice]
+            break
 
     ok(f"Primary: [bold]{state.primary_harness}[/bold] + [bold]{state.primary_engine}[/bold]")
     if state.secondary_harnesses or state.secondary_engines:
@@ -513,6 +686,8 @@ def _find_model_auto(engine: str, profile: dict[str, Any] | None = None) -> dict
 
 
 def _find_model_interactive(engine: str) -> dict[str, Any] | None:
+    if not _ensure_llmfit():
+        return None
     info("Running llmfit to rank coding models for this machine...")
     candidates = pb.llmfit_coding_candidates()
     if not candidates:
@@ -640,13 +815,27 @@ def _download_gguf_via_hf_cli(repo_id: str) -> dict:
     Returns {"ok": bool, "path": str|None}.
     """
     if not pb.huggingface_cli_detect().get("present"):
-        warn(
-            "huggingface-cli is not installed. "
-            "Install it with: pip install 'huggingface_hub[cli]'\n"
-            "Then re-run the wizard with --resume to download the model."
-        )
+        warn("huggingface-cli is not installed.")
         _show_install_hint("huggingface-cli")
-        return {"ok": False, "path": None}
+        install = questionary.confirm(
+            "Install huggingface_hub[cli] now via pip?",
+            default=True,
+        ).ask()
+        if install:
+            try:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "huggingface_hub[cli]"],
+                    check=True,
+                )
+            except subprocess.CalledProcessError as exc:
+                fail(f"pip install failed: {exc}")
+                return {"ok": False, "path": None}
+        if not pb.huggingface_cli_detect().get("present"):
+            warn(
+                "huggingface-cli still not found after install attempt.\n"
+                "Re-run the wizard with --resume once it is available."
+            )
+            return {"ok": False, "path": None}
 
     # Split "repo_id filename.gguf" if the caller passed both in one string.
     parts = repo_id.split(None, 1)
@@ -1407,8 +1596,10 @@ def run_find_model_standalone() -> int:
     header("find-model — llmfit coding-model recommendation")
     profile = pb.machine_profile()
     if not profile["presence"]["llmfit"]:
-        fail("llmfit is not installed.")
-        return 1
+        if not _ensure_llmfit():
+            return 1
+        # Refresh profile after successful install.
+        profile = pb.machine_profile()
     engines = profile["presence"]["engines"] or ["ollama"]
     engine = engines[0]
     info(f"Ranking models for engine: {engine}")
