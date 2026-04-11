@@ -805,18 +805,18 @@ def _estimate_model_size(state: WizardState) -> int | None:
 
 def _download_gguf_via_hf_cli(repo_id: str) -> dict:
     """
-    Download a GGUF model from Hugging Face Hub using huggingface-cli.
+    Download a GGUF model from Hugging Face Hub using the HuggingFace CLI.
 
     repo_id may be:
       - A bare repo like "bartowski/Qwen2.5-Coder-7B-Instruct-GGUF"
-        (downloads entire repo; huggingface-cli picks the right files)
+        (downloads entire repo; the CLI picks the right files)
       - A repo + filename like "org/repo filename.gguf"
         (downloads the specific file)
 
     Returns {"ok": bool, "path": str|None}.
     """
     if not pb.huggingface_cli_detect().get("present"):
-        warn("huggingface-cli is not installed.")
+        warn("HuggingFace CLI (hf / huggingface-cli) is not installed.")
         _show_install_hint("huggingface-cli")
         install = questionary.confirm(
             "Install huggingface_hub[cli] now via pip?",
@@ -831,9 +831,20 @@ def _download_gguf_via_hf_cli(repo_id: str) -> dict:
             except subprocess.CalledProcessError as exc:
                 fail(f"pip install failed: {exc}")
                 return {"ok": False, "path": None}
+            # pip installs the CLI binary into the same scripts directory as
+            # the running Python interpreter.  That directory may not be on
+            # the current process PATH yet (the user hasn't sourced their
+            # shell profile), so we add it explicitly before re-checking.
+            import sysconfig
+
+            scripts_dir = sysconfig.get_path("scripts")
+            if scripts_dir:
+                path_env = os.environ.get("PATH", "")
+                if scripts_dir not in path_env.split(os.pathsep):
+                    os.environ["PATH"] = scripts_dir + os.pathsep + path_env
         if not pb.huggingface_cli_detect().get("present"):
             warn(
-                "huggingface-cli still not found after install attempt.\n"
+                "HuggingFace CLI still not found after install attempt.\n"
                 "Re-run the wizard with --resume once it is available."
             )
             return {"ok": False, "path": None}
