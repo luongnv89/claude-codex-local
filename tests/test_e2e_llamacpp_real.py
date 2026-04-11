@@ -310,7 +310,7 @@ class TestRealHuggingFaceDownload:
         monkeypatch.setattr(
             pb,
             "huggingface_cli_detect",
-            lambda: {"present": True, "version": "patched"},
+            lambda: {"present": True, "binary": "huggingface-cli", "version": "patched"},
         )
         result = pb.huggingface_download_gguf(
             repo_id=MODEL_REPO,
