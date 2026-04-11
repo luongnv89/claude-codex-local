@@ -27,6 +27,7 @@ import shlex
 import stat
 import subprocess
 import sys
+import sysconfig
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -164,7 +165,7 @@ def step_2_1_discover(state: WizardState, non_interactive: bool = False) -> bool
     row("ollama (engine)", tools["ollama"])
     row("lmstudio (engine)", tools["lmstudio"])
     row("llama.cpp (engine)", tools["llamacpp"])
-    row("huggingface-cli (model downloader)", tools.get("huggingface_cli", {}))
+    row("hf / huggingface-cli (model downloader)", tools.get("huggingface_cli", {}))
     row("llmfit", tools["llmfit"])
     console.print(table)
 
@@ -835,8 +836,6 @@ def _download_gguf_via_hf_cli(repo_id: str) -> dict:
             # the running Python interpreter.  That directory may not be on
             # the current process PATH yet (the user hasn't sourced their
             # shell profile), so we add it explicitly before re-checking.
-            import sysconfig
-
             scripts_dir = sysconfig.get_path("scripts")
             if scripts_dir:
                 path_env = os.environ.get("PATH", "")

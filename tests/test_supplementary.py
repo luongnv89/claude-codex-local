@@ -394,6 +394,7 @@ class TestHuggingfaceCliDetect:
         result = pb.huggingface_cli_detect()
         assert result["present"] is True
         assert result["binary"] == "hf"
+        assert result["version"] == ""
 
     def test_missing(self, isolated_state, monkeypatch):
         pb, _, _ = isolated_state
