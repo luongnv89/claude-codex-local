@@ -60,11 +60,11 @@ llmfit --version
 
 1. ensure `ollama`, `claude`, `codex` exist
 2. install `llmfit`
-3. inspect the currently recommended model
+3. run the wizard so it can recommend and download a working model if needed
 4. run the repo doctor
 
 ```bash
-ccl find-model
+ccl setup --harness codex --engine ollama
 ccl doctor
 ```
 
